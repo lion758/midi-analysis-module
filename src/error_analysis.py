@@ -309,6 +309,93 @@ class ErrorAnalysis:
             'phrasing_regularity': self._assess_phrasing_regularity(phrase_boundaries, len(aligned_pairs))
         }
     
+    # Add this method to the ErrorAnalysis class in error_analysis.py
+# You can add it anywhere in the class, perhaps after the _analyze_phrasing_errors method
+
+    def _analyze_tempo_stability(self) -> Dict[str, Any]:
+        """Analyze tempo stability throughout the performance."""
+        performance_notes = self.performance_data.get('notes', [])
+        
+        if len(performance_notes) < 10:  # Need enough notes for tempo analysis
+            return {
+                'stability_score': 0.5,
+                'tempo_variation': 'Insufficient data',
+                'rubato_patterns': []
+            }
+        
+        # Calculate inter-onset intervals (IOI)
+        iois = []
+        for i in range(1, len(performance_notes)):
+            ioi = performance_notes[i]['start'] - performance_notes[i-1]['start']
+            iois.append(ioi)
+        
+        # Calculate local tempo variations
+        if len(iois) >= 5:
+            # Use moving window to detect tempo changes
+            tempo_variations = []
+            window_size = 5
+            
+            for i in range(len(iois) - window_size + 1):
+                window = iois[i:i+window_size]
+                avg_ioi = sum(window) / window_size
+                # Convert IOI to BPM (60 seconds / IOI in seconds)
+                if avg_ioi > 0:
+                    bpm = 60 / avg_ioi
+                    tempo_variations.append(bpm)
+            
+            # Calculate tempo stability
+            if tempo_variations:
+                mean_tempo = statistics.mean(tempo_variations)
+                if mean_tempo > 0:
+                    cv = statistics.stdev(tempo_variations) / mean_tempo if len(tempo_variations) > 1 else 0
+                    stability_score = 1 / (1 + cv)  # Convert to 0-1 scale
+                    
+                    # Detect rubato patterns (intentional tempo variations)
+                    rubato_patterns = self._detect_rubato_patterns(tempo_variations)
+                    
+                    return {
+                        'stability_score': round(stability_score, 2),
+                        'tempo_variation': round(cv * 100, 1),  # as percentage
+                        'average_tempo': round(mean_tempo, 1),
+                        'tempo_range': {
+                            'min': round(min(tempo_variations), 1),
+                            'max': round(max(tempo_variations), 1)
+                        },
+                        'rubato_patterns': rubato_patterns
+                    }
+        
+        return {
+            'stability_score': 0.5,
+            'tempo_variation': 'Normal',
+            'rubato_patterns': []
+        }
+
+    def _detect_rubato_patterns(self, tempo_variations: List[float]) -> List[Dict]:
+        """Detect intentional tempo variations (rubato)."""
+        patterns = []
+        
+        if len(tempo_variations) < 10:
+            return patterns
+        
+        # Look for patterns of slowing down and speeding up
+        for i in range(len(tempo_variations) - 4):
+            segment = tempo_variations[i:i+4]
+            # Check if pattern goes down then up (rubato)
+            if segment[0] > segment[1] and segment[1] < segment[2] and segment[2] < segment[3]:
+                patterns.append({
+                    'type': 'rubato_slow_then_fast',
+                    'start_index': i,
+                    'intensity': abs(segment[0] - segment[3]) / segment[0]
+                })
+            # Check if pattern goes up then down (reverse rubato)
+            elif segment[0] < segment[1] and segment[1] > segment[2] and segment[2] > segment[3]:
+                patterns.append({
+                    'type': 'rubato_fast_then_slow',
+                    'start_index': i,
+                    'intensity': abs(segment[0] - segment[3]) / segment[0]
+                })
+        
+        return patterns[:5]  # Return top 5 patterns
     def _analyze_pedaling_errors(self):
         """Analyze sustain pedal usage (if pedal data is available)."""
         # This is a placeholder for pedaling analysis
@@ -651,6 +738,14 @@ class ErrorAnalysis:
         
         return strengths if strengths else ["Solid foundation - keep practicing!"]
     
+    # In error_analysis.py, add this simple placeholder method:
+    def _analyze_tempo_stability(self) -> Dict[str, Any]:
+        """Placeholder for tempo stability analysis."""
+        return {
+            'stability_score': 0.5,
+            'tempo_variation': 'Normal',
+            'note': 'Tempo stability analysis not fully implemented'
+        }
     def _identify_weaknesses(self) -> List[str]:
         """Identify performance weaknesses."""
         weaknesses = []
