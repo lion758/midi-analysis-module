@@ -104,8 +104,8 @@ class MIDIAnalyzer:
         # Rest of the method remains the same...
         # Phrase segmentation (on reference)
         print("3. Segmenting musical phrases...")
-        phrase_segmenter = PhraseSegmentation(reference_parsed)
-        segmented_data = phrase_segmenter.segment_phrases()
+        # phrase_segmenter = PhraseSegmentation(reference_parsed)
+        # segmented_data = phrase_segmenter.segment_phrases()
         
         
         # Error analysis
@@ -124,7 +124,7 @@ class MIDIAnalyzer:
             'performance_data': performance_parsed,
             'alignment': aligned_notes,
             'alignment_statistics': alignment_stats,
-            'phrases': segmented_data,
+            #'phrases': segmented_data,
             'error_analysis': error_analysis
         }
         
@@ -145,7 +145,7 @@ class MIDIAnalyzer:
                 'aligned_notes': aligned_notes,
                 'statistics': alignment_stats
             },
-            'musical_structure': segmented_data,
+            #'musical_structure': segmented_data,
             'performance_analysis': error_analysis,
             'gpt_ready_summary': gpt_summary
         }

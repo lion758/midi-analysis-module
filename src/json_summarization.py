@@ -66,7 +66,7 @@ class JSONSummarization:
             'analysis_version': '1.0',
             'reference_statistics': {
                 'total_notes': len(reference_notes),
-                'duration': self.reference_data.get('total_duration', 0),
+                'duration': self.reference_data.get('metadata', {}).get('total_duration', 0),
                 'instruments': self.reference_data.get('instruments', []),
                 'pitch_range': self._calculate_pitch_range(reference_notes),
                 'note_density': len(reference_notes) / self.reference_data.get('total_duration', 1) if self.reference_data.get('total_duration', 0) > 0 else 0
