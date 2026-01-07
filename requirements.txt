@@ -1,7 +1,7 @@
 # Core MIDI processing
 pretty-midi>=0.2.10
 mido>=1.2.0
-python-rtmidi>=1.4.0
+#python-rtmidi>=1.4.0
 
 # Analysis & algorithms
 numpy>=1.19.0
