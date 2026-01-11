@@ -56,26 +56,33 @@ class JSONSummarization:
         
         return summary
     
+    def _get_total_duration(self, parsed: Dict[str, Any]) -> float:
+        return (
+            parsed.get('total_duration')
+            or parsed.get('metadata', {}).get('total_duration')
+            or 0
+        )
+
     def _create_metadata(self) -> Dict[str, Any]:
-        """Create metadata section."""
         reference_notes = self.reference_data.get('notes', [])
         performance_notes = self.performance_data.get('notes', [])
-        
+        ref_dur = self._get_total_duration(self.reference_data)
+        perf_dur = self._get_total_duration(self.performance_data)
         return {
             'analysis_timestamp': datetime.now().isoformat(),
             'analysis_version': '1.0',
             'reference_statistics': {
                 'total_notes': len(reference_notes),
-                'duration': self.reference_data.get('metadata', {}).get('total_duration', 0),
+                'duration': ref_dur,
                 'instruments': self.reference_data.get('instruments', []),
                 'pitch_range': self._calculate_pitch_range(reference_notes),
-                'note_density': len(reference_notes) / self.reference_data.get('total_duration', 1) if self.reference_data.get('total_duration', 0) > 0 else 0
+                'note_density': len(reference_notes) / ref_dur if ref_dur > 0 else 0
             },
             'performance_statistics': {
                 'total_notes': len(performance_notes),
-                'duration': self.performance_data.get('total_duration', 0),
+                'duration': perf_dur,
                 'pitch_range': self._calculate_pitch_range(performance_notes),
-                'note_density': len(performance_notes) / self.performance_data.get('total_duration', 1) if self.performance_data.get('total_duration', 0) > 0 else 0
+                'note_density': len(performance_notes) / perf_dur if perf_dur > 0 else 0
             }
         }
     

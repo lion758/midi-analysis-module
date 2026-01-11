@@ -11,10 +11,22 @@ class MIDIParser:
         """Parse MIDI file into comprehensive structured data."""
         try:
             self.midi_data = pretty_midi.PrettyMIDI(midi_path)
-            
+
+            # Extract notes ONCE
+            notes = self._extract_notes()
+
+            # Compute duration from actual max note end time (fallback to get_end_time)
+            if notes:
+                total_duration = max(n['end'] for n in notes)
+            else:
+                total_duration = self.midi_data.get_end_time() if self.midi_data else 0
+
+            metadata = self._extract_metadata_from_notes(notes, total_duration)
+
             return {
-                'notes': self._extract_notes(),
-                'metadata': self._extract_metadata(),
+                'notes': notes,
+                'total_duration': total_duration,          # add top-level
+                'metadata': metadata,                      # metadata also has total_duration
                 'timing': self._extract_timing_info(),
                 'harmony': self._extract_harmonic_content(),
                 'structure': self._extract_musical_structure(),
@@ -47,17 +59,10 @@ class MIDIParser:
         
         return sorted(notes, key=lambda x: x['start'])
     
-    def _extract_metadata(self) -> Dict:
-        """Extract MIDI file metadata."""
-        # Calculate total duration from the actual notes, not just get_end_time()
-        notes = self._extract_notes()
-        if notes:
-            max_end_time = max(note['end'] for note in notes)
-        else:
-            max_end_time = self.midi_data.get_end_time() if self.midi_data else 0
-        
+    def _extract_metadata_from_notes(self, notes: List[Dict], total_duration: float) -> Dict:
+        """Extract MIDI file metadata using already-extracted notes."""
         return {
-            'total_duration': max_end_time,  # Use the actual maximum end time
+            'total_duration': total_duration,
             'instruments': [
                 {
                     'name': inst.name,
@@ -67,10 +72,8 @@ class MIDIParser:
                 } for inst in self.midi_data.instruments
             ],
             'key_signature_changes': [
-                {
-                    'key': str(ks.key),
-                    'time': ks.time
-                } for ks in self.midi_data.key_signature_changes
+                {'key': str(ks.key), 'time': ks.time}
+                for ks in self.midi_data.key_signature_changes
             ],
             'lyrics': [ly.text for ly in self.midi_data.lyrics] if hasattr(self.midi_data, 'lyrics') else []
         }

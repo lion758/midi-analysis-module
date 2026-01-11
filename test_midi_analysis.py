@@ -17,7 +17,7 @@ def test_with_sample_midi():
     
     # Use raw strings or forward slashes for Windows paths
     # Option 1: Raw string (prefix with r)
-    solo_midi_path = r"C:\Users\majah\OneDrive\Desktop\MIDI_A_Module\midi-analysis-module\sample_files\performance.mid"
+    solo_midi_path = r"C:\Users\majah\OneDrive\Desktop\Undergrad\midi-analysis-module\sample_files\performance.mid"
     
     # Option 2: Forward slashes (also works on Windows)
     # solo_midi_path = "C:/Users/majah/OneDrive/Desktop/MIDI_A_Module/midi-analysis-module/sample_files/performance.mid"
@@ -80,7 +80,7 @@ def test_with_sample_midi():
     else:
         print(f"✗ File not found: {solo_midi_path}")
         print("\nAvailable files in sample_files directory:")
-        sample_dir = r"C:\Users\majah\OneDrive\Desktop\MIDI_A_Module\midi-analysis-module\sample_files"
+        sample_dir = r"C:\Users\majah\OneDrive\Desktop\Undergrad\midi-analysis-module\sample_files\sample_files"
         if os.path.exists(sample_dir):
             for file in os.listdir(sample_dir):
                 print(f"  - {file}")
@@ -93,8 +93,8 @@ def test_with_sample_midi():
     print("=" * 60)
     
     # Using forward slashes to avoid escape issues
-    reference_path = "C:/Users/majah/OneDrive/Desktop/MIDI_A_Module/midi-analysis-module/sample_files/reference.mid"
-    performance_path = "C:/Users/majah/OneDrive/Desktop/MIDI_A_Module/midi-analysis-module/sample_files/performance.mid"
+    reference_path = "C:/Users/majah/OneDrive/Desktop/Undergrad/midi-analysis-module/sample_files/reference.mid"
+    performance_path = "C:/Users/majah/OneDrive/Desktop/Undergrad/midi-analysis-module/sample_files/performance.mid"
     
     # Or use raw strings
     # reference_path = r"C:\Users\majah\OneDrive\Desktop\MIDI_A_Module\midi-analysis-module\sample_files\reference.mid"
