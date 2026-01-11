@@ -39,8 +39,12 @@ class MIDIAnalyzer:
         
         # Basic analysis
         notes = performance_data.get('notes', [])
-        total_duration = performance_data.get('total_duration', 0)
-        
+        total_duration = (
+            performance_data.get('total_duration')
+            or performance_data.get('metadata', {}).get('total_duration')
+            or 0
+        )
+                
         # Calculate basic metrics
         metrics = self._calculate_basic_metrics(notes, total_duration)
         
@@ -323,7 +327,7 @@ def print_parsed_data(self, performance_path: str):
         print("MIDI PARSED DATA")
         print("="*50)
         print(f"Total notes: {len(performance_data.get('notes', []))}")
-        print(f"Total duration: {performance_data.get('total_duration', 0):.2f} seconds")
+        print(f"Total duration: {performance_data.get('total_duration', 'total_duration'):.2f} seconds")
         print(f"Instruments: {performance_data.get('instruments', [])}")
         
         print("\nFIRST 5 NOTES:")
