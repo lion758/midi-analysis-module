@@ -677,13 +677,13 @@ class ErrorAnalysis:
     def _assign_grade(self, score: float) -> str:
         """Assign a letter grade based on performance score."""
         if score >= 0.9:
-            return "A (Excellent)"
+            return "A+ (Excellent)"
         elif score >= 0.8:
-            return "B (Good)"
+            return "A (Very Good)"
         elif score >= 0.7:
-            return "C (Fair)"
+            return "B (Good)"
         elif score >= 0.6:
-            return "D (Needs Improvement)"
+            return "C (Fair)"
         else:
             return "F (Needs Significant Practice)"
     
