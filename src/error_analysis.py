@@ -166,36 +166,87 @@ class ErrorAnalysis:
         }
     
     def _analyze_rhythmic_consistency(self):
-        """Analyze rhythmic consistency within phrases."""
-        reference_notes = self.reference_data.get('notes', [])
-        performance_notes = self.performance_data.get('notes', [])
-        
-        if not reference_notes or not performance_notes:
+        """
+        Analyze rhythmic consistency.
+
+        IMPORTANT FIX:
+        In reference-comparison mode, we must measure how well the performance matches
+        the reference rhythm (IOIs/durations), not whether the performance durations
+        are uniform. Otherwise, pieces with naturally varied rhythms get penalized.
+        """
+        import math
+        aligned_pairs = [p for p in self.aligned_notes
+                        if p.get('reference_note') and p.get('performance_note')]
+
+        # If we don't have aligned data, fall back to old behavior (solo-ish heuristic).
+        if len(aligned_pairs) < 3:
+            reference_notes = self.reference_data.get('notes', [])
+            performance_notes = self.performance_data.get('notes', [])
+            if not reference_notes or not performance_notes:
+                return
+
+            perf_durations = [n['duration'] for n in performance_notes]
+            self.metrics['rhythmic_consistency'] = {
+                'duration_consistency_score': round(self._calculate_consistency_score(perf_durations), 2),
+                'average_duration_ratio': 0,
+                'duration_std': round(statistics.stdev(perf_durations), 3) if len(perf_durations) > 1 else 0,
+                'interval_consistency': 0,
+                'tempo_stability': self._analyze_tempo_stability()
+            }
             return
-        
-        # Calculate note durations and intervals
-        ref_durations = [note['duration'] for note in reference_notes]
-        perf_durations = [note['duration'] for note in performance_notes]
-        
-        ref_intervals = self._calculate_note_intervals(reference_notes)
-        perf_intervals = self._calculate_note_intervals(performance_notes)
-        
-        # Compare rhythmic ratios (important for musicality)
-        rhythmic_ratios = []
-        if len(ref_intervals) > 1 and len(perf_intervals) > 1:
-            for i in range(min(len(ref_intervals), len(perf_intervals))):
-                if ref_intervals[i] > 0:
-                    ratio = perf_intervals[i] / ref_intervals[i]
-                    rhythmic_ratios.append(ratio)
-        
-        # Analyze duration consistency
-        duration_consistency = self._calculate_consistency_score(perf_durations)
-        
+
+        # Sort aligned pairs by reference time (so we're comparing consecutive rhythm points)
+        aligned_pairs.sort(key=lambda x: x['reference_note']['start'])
+
+        ref_starts = [p['reference_note']['start'] for p in aligned_pairs]
+        perf_starts = [p['performance_note']['start'] for p in aligned_pairs]
+
+        ref_durs = [p['reference_note']['duration'] for p in aligned_pairs]
+        perf_durs = [p['performance_note']['duration'] for p in aligned_pairs]
+
+        # Inter-onset intervals (IOIs)
+        ref_ioi = [ref_starts[i] - ref_starts[i - 1] for i in range(1, len(ref_starts))]
+        perf_ioi = [perf_starts[i] - perf_starts[i - 1] for i in range(1, len(perf_starts))]
+
+        # Compare performance vs reference rhythm using ratios.
+        # Use log-ratio so early/late deviations are symmetric:
+        # ratio 0.5 and 2.0 are equally "bad" (abs(log(ratio)) is same).
+        ioi_log_devs = []
+        for r, p in zip(ref_ioi, perf_ioi):
+            if r > 1e-6 and p > 1e-6:
+                ioi_log_devs.append(abs(math.log(p / r)))
+
+        dur_log_devs = []
+        for r, p in zip(ref_durs, perf_durs):
+            if r > 1e-6 and p > 1e-6:
+                dur_log_devs.append(abs(math.log(p / r)))
+
+        # Turn deviations into a 0-1 score (0=bad, 1=perfect).
+        # Tune k values as needed; these defaults work well for "same file" -> ~1.0
+        def devs_to_score(devs, k_mean=6.0, k_std=3.0):
+            if not devs:
+                return 0.5
+            mean_dev = statistics.mean(devs)
+            std_dev = statistics.stdev(devs) if len(devs) > 1 else 0.0
+            score = 1.0 / (1.0 + k_mean * mean_dev + k_std * std_dev)
+            return max(0.0, min(1.0, score))
+
+        ioi_score = devs_to_score(ioi_log_devs)
+        dur_score = devs_to_score(dur_log_devs)
+
+        # Combine. IOI is usually more important for rhythm than note length.
+        rhythm_score = 0.7 * ioi_score + 0.3 * dur_score
+
+        # Provide some helpful debug-style metrics too
+        avg_ioi_ratio = statistics.mean([p/r for r, p in zip(ref_ioi, perf_ioi) if r > 1e-6]) if ref_ioi else 0
+
         self.metrics['rhythmic_consistency'] = {
-            'duration_consistency_score': round(duration_consistency, 2),
-            'average_duration_ratio': round(statistics.mean(rhythmic_ratios), 2) if rhythmic_ratios else 0,
-            'duration_std': round(statistics.stdev(perf_durations), 3) if len(perf_durations) > 1 else 0,
-            'interval_consistency': round(self._calculate_consistency_score(perf_intervals), 2) if perf_intervals else 0,
+            'duration_consistency_score': round(rhythm_score, 2),
+            'average_duration_ratio': round(statistics.mean([p/r for r, p in zip(ref_durs, perf_durs) if r > 1e-6]), 2)
+                                    if ref_durs else 0,
+            'average_ioi_ratio': round(avg_ioi_ratio, 3),
+            'ioi_match_score': round(ioi_score, 2),
+            'duration_match_score': round(dur_score, 2),
             'tempo_stability': self._analyze_tempo_stability()
         }
     
