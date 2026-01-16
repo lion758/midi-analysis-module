@@ -166,87 +166,90 @@ class ErrorAnalysis:
         }
     
     def _analyze_rhythmic_consistency(self):
-        """
-        Analyze rhythmic consistency.
+        """Analyze rhythmic consistency.
 
-        IMPORTANT FIX:
-        In reference-comparison mode, we must measure how well the performance matches
-        the reference rhythm (IOIs/durations), not whether the performance durations
-        are uniform. Otherwise, pieces with naturally varied rhythms get penalized.
+        NOTE (bug fix):
+        In reference-comparison mode, rhythmic consistency should measure how
+        well the performance matches the reference rhythm (IOIs/durations), not
+        whether the performance note durations are "uniform". Using the
+        coefficient of variation (CV) on raw performance durations penalizes
+        pieces with naturally varied rhythms even when performed perfectly.
         """
         import math
+
+        # Prefer aligned data for reference-vs-performance comparison
         aligned_pairs = [p for p in self.aligned_notes
                         if p.get('reference_note') and p.get('performance_note')]
 
-        # If we don't have aligned data, fall back to old behavior (solo-ish heuristic).
-        if len(aligned_pairs) < 3:
-            reference_notes = self.reference_data.get('notes', [])
-            performance_notes = self.performance_data.get('notes', [])
-            if not reference_notes or not performance_notes:
-                return
+        if len(aligned_pairs) >= 3:
+            # Sort by reference time for stable consecutive IOI comparison
+            aligned_pairs.sort(key=lambda x: x['reference_note']['start'])
 
-            perf_durations = [n['duration'] for n in performance_notes]
+            ref_starts = [p['reference_note']['start'] for p in aligned_pairs]
+            perf_starts = [p['performance_note']['start'] for p in aligned_pairs]
+            ref_durs = [p['reference_note']['duration'] for p in aligned_pairs]
+            perf_durs = [p['performance_note']['duration'] for p in aligned_pairs]
+
+            # Inter-onset intervals (IOIs)
+            ref_ioi = [ref_starts[i] - ref_starts[i - 1] for i in range(1, len(ref_starts))]
+            perf_ioi = [perf_starts[i] - perf_starts[i - 1] for i in range(1, len(perf_starts))]
+
+            # Use log-ratio deviation so 0.5x and 2x are equally "bad"
+            ioi_log_devs = []
+            for r, p in zip(ref_ioi, perf_ioi):
+                if r > 1e-6 and p > 1e-6:
+                    ioi_log_devs.append(abs(math.log(p / r)))
+
+            dur_log_devs = []
+            for r, p in zip(ref_durs, perf_durs):
+                if r > 1e-6 and p > 1e-6:
+                    dur_log_devs.append(abs(math.log(p / r)))
+
+            def _devs_to_score(devs, k_mean: float = 6.0, k_std: float = 3.0) -> float:
+                if not devs:
+                    return 0.5
+                mean_dev = statistics.mean(devs)
+                std_dev = statistics.stdev(devs) if len(devs) > 1 else 0.0
+                score = 1.0 / (1.0 + k_mean * mean_dev + k_std * std_dev)
+                return max(0.0, min(1.0, score))
+
+            ioi_score = _devs_to_score(ioi_log_devs)
+            dur_score = _devs_to_score(dur_log_devs)
+
+            # IOI match is more important than absolute note length for rhythm
+            rhythm_score = 0.7 * ioi_score + 0.3 * dur_score
+
+            avg_ioi_ratio = statistics.mean([
+                (p / r) for r, p in zip(ref_ioi, perf_ioi) if r > 1e-6
+            ]) if ref_ioi else 0
+
             self.metrics['rhythmic_consistency'] = {
-                'duration_consistency_score': round(self._calculate_consistency_score(perf_durations), 2),
-                'average_duration_ratio': 0,
-                'duration_std': round(statistics.stdev(perf_durations), 3) if len(perf_durations) > 1 else 0,
-                'interval_consistency': 0,
+                'duration_consistency_score': round(rhythm_score, 2),
+                'average_duration_ratio': round(statistics.mean([
+                    (p / r) for r, p in zip(ref_durs, perf_durs) if r > 1e-6
+                ]), 2) if ref_durs else 0,
+                'average_ioi_ratio': round(avg_ioi_ratio, 3),
+                'ioi_match_score': round(ioi_score, 2),
+                'duration_match_score': round(dur_score, 2),
                 'tempo_stability': self._analyze_tempo_stability()
             }
             return
 
-        # Sort aligned pairs by reference time (so we're comparing consecutive rhythm points)
-        aligned_pairs.sort(key=lambda x: x['reference_note']['start'])
+        # Fallback (solo-style heuristic) when no alignment is available
+        reference_notes = self.reference_data.get('notes', [])
+        performance_notes = self.performance_data.get('notes', [])
+        if not reference_notes or not performance_notes:
+            return
 
-        ref_starts = [p['reference_note']['start'] for p in aligned_pairs]
-        perf_starts = [p['performance_note']['start'] for p in aligned_pairs]
-
-        ref_durs = [p['reference_note']['duration'] for p in aligned_pairs]
-        perf_durs = [p['performance_note']['duration'] for p in aligned_pairs]
-
-        # Inter-onset intervals (IOIs)
-        ref_ioi = [ref_starts[i] - ref_starts[i - 1] for i in range(1, len(ref_starts))]
-        perf_ioi = [perf_starts[i] - perf_starts[i - 1] for i in range(1, len(perf_starts))]
-
-        # Compare performance vs reference rhythm using ratios.
-        # Use log-ratio so early/late deviations are symmetric:
-        # ratio 0.5 and 2.0 are equally "bad" (abs(log(ratio)) is same).
-        ioi_log_devs = []
-        for r, p in zip(ref_ioi, perf_ioi):
-            if r > 1e-6 and p > 1e-6:
-                ioi_log_devs.append(abs(math.log(p / r)))
-
-        dur_log_devs = []
-        for r, p in zip(ref_durs, perf_durs):
-            if r > 1e-6 and p > 1e-6:
-                dur_log_devs.append(abs(math.log(p / r)))
-
-        # Turn deviations into a 0-1 score (0=bad, 1=perfect).
-        # Tune k values as needed; these defaults work well for "same file" -> ~1.0
-        def devs_to_score(devs, k_mean=6.0, k_std=3.0):
-            if not devs:
-                return 0.5
-            mean_dev = statistics.mean(devs)
-            std_dev = statistics.stdev(devs) if len(devs) > 1 else 0.0
-            score = 1.0 / (1.0 + k_mean * mean_dev + k_std * std_dev)
-            return max(0.0, min(1.0, score))
-
-        ioi_score = devs_to_score(ioi_log_devs)
-        dur_score = devs_to_score(dur_log_devs)
-
-        # Combine. IOI is usually more important for rhythm than note length.
-        rhythm_score = 0.7 * ioi_score + 0.3 * dur_score
-
-        # Provide some helpful debug-style metrics too
-        avg_ioi_ratio = statistics.mean([p/r for r, p in zip(ref_ioi, perf_ioi) if r > 1e-6]) if ref_ioi else 0
+        perf_durations = [note['duration'] for note in performance_notes]
+        perf_intervals = self._calculate_note_intervals(performance_notes)
+        duration_consistency = self._calculate_consistency_score(perf_durations)
 
         self.metrics['rhythmic_consistency'] = {
-            'duration_consistency_score': round(rhythm_score, 2),
-            'average_duration_ratio': round(statistics.mean([p/r for r, p in zip(ref_durs, perf_durs) if r > 1e-6]), 2)
-                                    if ref_durs else 0,
-            'average_ioi_ratio': round(avg_ioi_ratio, 3),
-            'ioi_match_score': round(ioi_score, 2),
-            'duration_match_score': round(dur_score, 2),
+            'duration_consistency_score': round(duration_consistency, 2),
+            'average_duration_ratio': 0,
+            'duration_std': round(statistics.stdev(perf_durations), 3) if len(perf_durations) > 1 else 0,
+            'interval_consistency': round(self._calculate_consistency_score(perf_intervals), 2) if perf_intervals else 0,
             'tempo_stability': self._analyze_tempo_stability()
         }
     
@@ -263,6 +266,7 @@ class ErrorAnalysis:
         
         # Calculate dynamic metrics
         dynamic_range = max(perf_velocities) - min(perf_velocities) if perf_velocities else 0
+        ref_dynamic_range = max(ref_velocities) - min(ref_velocities) if ref_velocities else 0
         dynamic_variety = len(set(perf_velocities)) / len(perf_velocities) if perf_velocities else 0
         
         # Analyze crescendo/decrescendo patterns
@@ -278,6 +282,7 @@ class ErrorAnalysis:
         
         self.metrics['dynamic_control'] = {
             'dynamic_range': int(dynamic_range),
+            'reference_dynamic_range': int(ref_dynamic_range),
             'dynamic_variety': round(dynamic_variety, 2),
             'average_velocity': round(statistics.mean(perf_velocities), 1) if perf_velocities else 0,
             'velocity_std': round(statistics.stdev(perf_velocities), 1) if len(perf_velocities) > 1 else 0,
@@ -540,9 +545,19 @@ class ErrorAnalysis:
         # Dynamic recommendations
         if 'dynamic_control' in self.metrics:
             dynamic_range = self.metrics['dynamic_control'].get('dynamic_range', 0)
-            if dynamic_range < 40:
-                recommendations.append("Increase dynamic range: practice crescendos and decrescendos")
-        
+            if 'dynamic_control' in self.metrics:
+                dyn = self.metrics['dynamic_control']
+                ref_range = dyn.get('reference_dynamic_range', None)
+                perf_range = dyn.get('dynamic_range', 0)
+                deviation = dyn.get('dynamic_deviation', 0)
+
+                # Only recommend more range if the reference actually has more range
+                # OR if deviation shows they are not matching reference dynamics
+                if ref_range is not None and ref_range > 20 and perf_range < ref_range * 0.6:
+                    recommendations.append("Increase dynamic range to match the reference: practice crescendos and decrescendos")
+                elif deviation > 12:
+                    recommendations.append("Work on matching the reference dynamics more closely (control velocity changes)")
+
         # Rhythmic recommendations
         if 'rhythmic_consistency' in self.metrics:
             consistency = self.metrics['rhythmic_consistency'].get('duration_consistency_score', 0)
@@ -708,12 +723,48 @@ class ErrorAnalysis:
         return max(0, min(1, timing_score))
     
     def _calculate_dynamic_score(self) -> float:
-        """Calculate dynamic control score (0-1)."""
+        """
+        Calculate dynamic control score (0-1).
+        IMPORTANT FIX (reference mode):
+        If performance matches the reference dynamics, do NOT penalize low dynamic range.
+        Grade based on similarity to reference velocities, and only use "expressiveness"
+        as a fallback when no reference is available.
+        """
         dynamic_metrics = self.metrics.get('dynamic_control', {})
+
+        # If we have reference-comparison info, score by deviation from reference
+        # dynamic_deviation is avg |perf_vel - ref_vel| across matched indices
+        dynamic_deviation = dynamic_metrics.get('dynamic_deviation', None)
+
+        # Heuristic: if dynamic_deviation exists, we are in reference comparison mode
+        if dynamic_deviation is not None:
+            # Convert deviation to a 0-1 similarity score
+            # 0 difference -> 1.0 score
+            # ~10 velocity difference -> still good, ~20+ starts to drop more
+            # Tune denominator as needed
+            similarity = 1.0 - min(dynamic_deviation / 25.0, 1.0)
+
+            # OPTIONAL: also compare dynamic range similarity (helps when reference has crescendos)
+            ref_range = dynamic_metrics.get('reference_dynamic_range', None)
+            perf_range = dynamic_metrics.get('dynamic_range', 0)
+
+            range_match = None
+            if isinstance(ref_range, (int, float)) and ref_range is not None:
+                if ref_range <= 1:
+                    # Reference has basically no dynamic contrast; matching it should be perfect.
+                    range_match = 1.0
+                else:
+                    # Compare ranges proportionally
+                    range_match = 1.0 - min(abs(perf_range - ref_range) / ref_range, 1.0)
+
+            # Combine: mostly similarity of velocities; range_match adds context if available
+            if range_match is None:
+                return max(0.0, min(1.0, similarity))
+            return max(0.0, min(1.0, 0.8 * similarity + 0.2 * range_match))
+
+        # ---- Fallback: SOLO-style scoring (no reference available) ----
         dynamic_range = dynamic_metrics.get('dynamic_range', 0)
         expression = dynamic_metrics.get('expression_level', 'Limited Expression')
-        
-        # Score based on dynamic range and expression
         range_score = min(dynamic_range / 60, 1)  # 60+ is excellent
         expression_score = {
             'Highly Expressive': 1.0,
@@ -722,7 +773,6 @@ class ErrorAnalysis:
             'Limited Expression': 0.3,
             'Unknown': 0.5
         }.get(expression, 0.5)
-        
         return (range_score * 0.4 + expression_score * 0.6)
     
     def _assign_grade(self, score: float) -> str:
