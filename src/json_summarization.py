@@ -411,38 +411,66 @@ class JSONSummarization:
         staccato = articulation_data.get('staccato_percentage', 0)
         legato = articulation_data.get('legato_percentage', 0)
         consistency = articulation_data.get('articulation_consistency', 0)
-        
+
+        # If one articulation style is overwhelmingly dominant, describe it as
+        # consistent in that style (this is not inherently a problem).
+        if legato >= 95:
+            return f"consistently legato articulation with {staccato:.1f}% staccato and {legato:.1f}% legato notes."
+        if staccato >= 95:
+            return f"consistently staccato articulation with {staccato:.1f}% staccato and {legato:.1f}% legato notes."
+
         if consistency >= 0.8:
             consistency_text = "consistent"
         elif consistency >= 0.6:
             consistency_text = "somewhat consistent"
         else:
-            consistency_text = "inconsistent"
-        
+            # Low consistency can happen even when a single style is intended;
+            # avoid overly negative wording.
+            consistency_text = "variable"
+
         return f"{consistency_text} articulation with {staccato:.1f}% staccato and {legato:.1f}% legato notes."
     
     def _calculate_error_distribution(self, error_categories: Dict) -> Dict[str, float]:
-        """Calculate distribution of error types."""
-        distribution = {}
+        """
+        Calculate distribution of *actual errors only*.
+
+        Fix:
+        - Do NOT count non-errors like 'matched' notes or 'accurate' timing.
+        - If there are 0 errors, return 0% across categories.
+        """
+        # Map each category to the subkeys that represent real errors
+        error_keys = {
+            'note_accuracy': ['missing', 'extra', 'wrong'],
+            'timing': ['rushing', 'dragging'],
+            # Add more categories here later if you implement them as error lists
+            # e.g. 'pedaling': ['incorrect', 'missing', ...]
+        }
+
+        counts = {}
         total_errors = 0
-        
-        for category, errors in error_categories.items():
-            if isinstance(errors, dict):
-                error_count = sum(len(err_list) for err_list in errors.values() if isinstance(err_list, list))
-            elif isinstance(errors, list):
-                error_count = len(errors)
-            else:
-                error_count = 0
-            
-            distribution[category] = error_count
-            total_errors += error_count
-        
+
+        for category, keys in error_keys.items():
+            cat_obj = error_categories.get(category, {})
+            cat_count = 0
+
+            if isinstance(cat_obj, dict):
+                for k in keys:
+                    v = cat_obj.get(k, [])
+                    if isinstance(v, list):
+                        cat_count += len(v)
+            elif isinstance(cat_obj, list):
+                # If a category is directly a list of errors
+                cat_count += len(cat_obj)
+
+            counts[category] = cat_count
+            total_errors += cat_count
+
+        # If no errors, return zeros (stable schema)
+        if total_errors == 0:
+            return {k: 0.0 for k in counts.keys()}
+
         # Convert to percentages
-        if total_errors > 0:
-            for category in distribution:
-                distribution[category] = (distribution[category] / total_errors) * 100
-        
-        return distribution
+        return {k: (v / total_errors) * 100 for k, v in counts.items()}
     
     def _create_practice_schedule(self, categorized_recs: Dict) -> Dict[str, Any]:
         """Create a suggested practice schedule."""
@@ -593,12 +621,45 @@ class JSONSummarization:
         ]
     
     def _set_target_scores(self, current_score: float) -> Dict[str, float]:
-        """Set realistic target scores for progress tracking."""
-        next_target = min(current_score + 10, 95)
+        """
+        Set realistic target scores for progress tracking.
+
+        Fix:
+        - Never produce targets below the current score.
+        - Use a ceiling of 100 (since your grading can output 100.0).
+        - Apply diminishing returns near the top.
+        """
+        MAX_SCORE = 100.0
+
+        # If already essentially perfect, you're "maintaining", not "improving"
+        if current_score >= 99.5:
+            return {
+                'next_week': round(current_score, 1),
+                'one_month': round(current_score, 1),
+                'three_months': round(current_score, 1)
+            }
+
+        # Diminishing increments as score increases
+        if current_score >= 90:
+            week_inc, month_inc, three_month_inc = 2.0, 4.0, 6.0
+        elif current_score >= 80:
+            week_inc, month_inc, three_month_inc = 4.0, 7.0, 10.0
+        else:
+            week_inc, month_inc, three_month_inc = 6.0, 10.0, 15.0
+
+        next_week = min(current_score + week_inc, MAX_SCORE)
+        one_month = min(current_score + month_inc, MAX_SCORE)
+        three_months = min(current_score + three_month_inc, MAX_SCORE)
+
+        # Ensure monotonic targets and never below current
+        next_week = max(next_week, current_score)
+        one_month = max(one_month, next_week)
+        three_months = max(three_months, one_month)
+
         return {
-            'next_week': next_target,
-            'one_month': min(current_score + 15, 95),
-            'three_months': min(current_score + 25, 95)
+            'next_week': round(next_week, 1),
+            'one_month': round(one_month, 1),
+            'three_months': round(three_months, 1)
         }
     
     def _infer_student_level(self) -> str:
