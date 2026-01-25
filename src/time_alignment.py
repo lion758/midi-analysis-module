@@ -341,6 +341,7 @@ class TimeAlignment:
             
             if best_match:
                 best_match['matched'] = True
+                ref_note['matched'] = True
                 aligned_pairs.append({
                     'reference_note': ref_note,
                     'performance_note': best_match,
