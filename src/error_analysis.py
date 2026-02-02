@@ -89,29 +89,15 @@ class ErrorAnalysis:
             elif pair.get('performance_note') and not pair.get('reference_note'):
                 extra_notes.append(pair)
         
-        # FIX: We need to count actual reference notes from parsed data, not just aligned pairs
-        # The aligned_pairs might not include ALL reference notes if some weren't aligned
-        total_reference_notes = len(self.reference_data.get('notes', []))
-        
-        # But we should also verify our counting logic
-        # Let's cross-check with aligned pairs data
-        aligned_count_from_pairs = len(matched_notes) + len(wrong_notes) + len(missing_notes)
-        
-        # Use whichever is larger to avoid undercounting
-        total_reference_notes = max(total_reference_notes, aligned_count_from_pairs)
+        total_reference_notes = len(missing_notes) + len(matched_notes) + len(wrong_notes)
         
         # Calculate accuracy percentages
         if total_reference_notes > 0:
-            # FIX: Include correctly pitched notes AND notes with pitch errors as "aligned but wrong pitch"
-            correctly_aligned = len(matched_notes)
-            total_aligned_with_reference = len(matched_notes) + len(wrong_notes)
-            note_accuracy = (correctly_aligned / total_reference_notes) * 100
+            note_accuracy = (len(matched_notes) / total_reference_notes) * 100
             missing_percentage = (len(missing_notes) / total_reference_notes) * 100
-            wrong_pitch_percentage = (len(wrong_notes) / total_reference_notes) * 100
         else:
             note_accuracy = 0
             missing_percentage = 0
-            wrong_pitch_percentage = 0
         
         self.metrics['note_accuracy'] = {
             'total_reference_notes': total_reference_notes,
@@ -120,9 +106,7 @@ class ErrorAnalysis:
             'extra_notes': len(extra_notes),
             'wrong_notes': len(wrong_notes),
             'accuracy_percentage': round(note_accuracy, 1),
-            'missing_percentage': round(missing_percentage, 1),
-            'wrong_pitch_percentage': round(wrong_pitch_percentage, 1),
-            'total_aligned_with_reference': total_aligned_with_reference  # For debugging
+            'missing_percentage': round(missing_percentage, 1)
         }
         
         self.error_categories['note_accuracy'] = {
@@ -130,7 +114,8 @@ class ErrorAnalysis:
             'missing': missing_notes,
             'extra': extra_notes,
             'wrong': wrong_notes
-        }    
+        }
+    
     def _analyze_timing_errors(self):
         """Analyze timing errors: rushing, dragging, inconsistency."""
         aligned_pairs = [p for p in self.aligned_notes 
