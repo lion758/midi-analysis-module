@@ -193,7 +193,7 @@ class TimeAlignment:
 
         self.phrases: List[Tuple[float, float]] = []                 # list of (t0,t1) in reference time
         self.phrase_fingerprints: np.ndarray = np.zeros((0, 0))      # (P, D)
-        self.repeat_jumps: Dict[int, List[int]] = {}                 # phrase i -> list of earlier phrase indices
+        #self.repeat_jumps: Dict[int, List[int]] = {}                 # phrase i -> list of earlier phrase indices
 
         self.hypotheses: List[TimelineHypothesis] = []
         self.selected_hypothesis: Optional[TimelineHypothesis] = None
