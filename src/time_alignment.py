@@ -214,6 +214,31 @@ class TimeAlignment:
         self.ref_events = self._cluster_events(self.ref_notes)
         self.perf_events = self._cluster_events(self.perf_notes)
 
+        # Deterministic fast path: if reference/performance are effectively the same note stream,
+        # emit exact 1:1 matches and skip heuristic alignment stages.
+        if self._notes_are_identical(self.ref_notes, self.perf_notes):
+            self.global_time_map = self._identity_time_map()
+            self.global_path = [(i, i) for i in range(min(len(self.ref_notes), len(self.perf_notes)))]
+            self.quality["global"] = {"method": "identity_fast_path", "exact_match": True}
+            self.quality["anchors"] = {"count": 0}
+            self.quality["hypothesis_selection"] = {"num_hypotheses": 1, "best": "H_identity"}
+            self.selected_hypothesis = TimelineHypothesis(phrase_order=[0], cost=0.0, alive=True, name="H_identity")
+            self.hypotheses = [self.selected_hypothesis]
+            self.phrases = self._segment_phrases([])
+            self.repeat_jumps = {}
+            self.aligned_pairs = self._build_exact_aligned_pairs(self.ref_notes, self.perf_notes)
+            report = {
+                "alignment_type": "midi_only_repeat_inferred_hierarchical",
+                "quality": self.quality,
+                "selected_hypothesis": self.selected_hypothesis.name,
+                "hypotheses": [{"name": self.selected_hypothesis.name, "cost": 0.0, "phrase_order": [0]}],
+                "statistics": self.get_alignment_statistics(),
+                "aligned_pairs": self.aligned_pairs,
+                "global_warping_path_sample": self._sample_path(self.global_path),
+                "repeat_jumps": {},
+            }
+            return report
+
         # Level 1 Stage 1: global map from frame DTW
         self.global_time_map, self.global_path, qg = self._compute_global_time_map()
         self.quality["global"] = qg
@@ -1024,7 +1049,11 @@ class TimeAlignment:
 
         # Ornament insertion labeling (very light)
         if fixed:
-            perf_aligned = [(p["performance_note"]["start"], p["performance_note"]["pitch"]) for p in fixed]
+            perf_aligned = [
+                (p["performance_note"]["start"], p["performance_note"]["pitch"])
+                for p in fixed
+                if p.get("performance_note") is not None
+            ]
             for p in non:
                 if p.get("error_type") == "extra_note" and p.get("performance_note") is not None:
                     t = p["performance_note"]["start"]
@@ -1111,6 +1140,43 @@ class TimeAlignment:
             return path
         step = max(1, len(path) // max_points)
         return path[::step]
+
+    def _notes_are_identical(self, ref_notes: List[NoteEvent], perf_notes: List[NoteEvent], tol: float = 1e-6) -> bool:
+        if len(ref_notes) != len(perf_notes):
+            return False
+        for r, p in zip(ref_notes, perf_notes):
+            if r.pitch != p.pitch:
+                return False
+            if r.velocity != p.velocity:
+                return False
+            if abs(r.onset - p.onset) > tol:
+                return False
+            if abs(r.offset - p.offset) > tol:
+                return False
+        return True
+
+    def _identity_time_map(self) -> TimeMap:
+        t0 = 0.0
+        t1 = max([n.offset for n in self.ref_notes], default=1.0)
+        if t1 <= t0:
+            t1 = t0 + 1.0
+        return TimeMap(np.array([t0, t1], dtype=float), np.array([t0, t1], dtype=float))
+
+    def _build_exact_aligned_pairs(self, ref_notes: List[NoteEvent], perf_notes: List[NoteEvent]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for r, p in zip(ref_notes, perf_notes):
+            out.append({
+                "reference_note": self._note_to_dict(r),
+                "performance_note": self._note_to_dict(p),
+                "time_difference": float(p.onset - r.onset),
+                "pitch_difference": int(p.pitch - r.pitch),
+                "velocity_difference": int(p.velocity - r.velocity),
+                "alignment_confidence": 1.0,
+                "error_type": "none",
+                "phrase_index": 0,
+                "match_level": "exact_identity",
+            })
+        return out
 
 
 # -----------------------------

@@ -361,6 +361,22 @@ class MIDIAnalyzer:
         with open(alignment_path, "w", encoding="utf-8") as f:
             json.dump(alignment_data, f, indent=2, ensure_ascii=False, default=str)
 
+        # Detailed error dump (kept separate so gpt_summary stays compact)
+        error_details_path = os.path.join(output_dir, "error_details.json")
+        perf_analysis = self.analysis_results.get("performance_analysis", {})
+        error_details = {
+            "reference_file": self.analysis_results.get("reference_file"),
+            "performance_file": self.analysis_results.get("performance_file"),
+            "timestamp": self.analysis_results.get("timestamp"),
+            "metrics": perf_analysis.get("metrics", {}),
+            "error_categories": perf_analysis.get("error_categories", {}),
+            "detailed_errors": perf_analysis.get("detailed_errors", []),
+            "performance_summary": perf_analysis.get("performance_summary", {}),
+            "practice_recommendations": perf_analysis.get("practice_recommendations", []),
+        }
+        with open(error_details_path, "w", encoding="utf-8") as f:
+            json.dump(error_details, f, indent=2, ensure_ascii=False, default=str)
+
         print(f"Analysis reports saved to: {output_dir}")
 
     def _get_timestamp(self) -> str:
