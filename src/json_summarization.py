@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import textwrap
+import statistics
 
 class JSONSummarization:
     """
@@ -103,7 +104,7 @@ class JSONSummarization:
             },
             'key_metrics': {
                 'note_accuracy': f"{note_accuracy:.1f}%",
-                'timing_consistency': f"±{timing_errors.get('std_error_ms', 0):.1f} ms",
+                'timing_consistency': f"+/-{timing_errors.get('std_error_ms', 0):.1f} ms",
                 'dynamic_range': error_metrics.get('dynamic_control', {}).get('dynamic_range', 0),
                 'rhythmic_consistency': error_metrics.get('rhythmic_consistency', {}).get('duration_consistency_score', 0)
             },
@@ -141,7 +142,12 @@ class JSONSummarization:
                 'summary': self._summarize_articulation_errors(error_metrics.get('articulation', {})),
                 'priority': 'medium'
             },
-            'error_distribution': self._calculate_error_distribution(error_categories)
+            'error_distribution': self._calculate_error_distribution(error_categories),
+            'categorized_errors': self._build_categorized_errors(
+                error_metrics,
+                error_categories,
+                include_samples=False
+            )
         }
     
     def _create_practice_recommendations(self) -> Dict[str, Any]:
@@ -343,9 +349,9 @@ class JSONSummarization:
         elif dragging > rushing + 15:
             return f"Tendency to drag ({dragging:.1f}% of notes late by average {abs(mean_error):.1f}ms)."
         elif std_error > 50:
-            return f"Inconsistent timing (±{std_error:.1f}ms variability)."
+            return f"Inconsistent timing (+/-{std_error:.1f}ms variability)."
         else:
-            return f"Generally good timing (±{std_error:.1f}ms consistency)."
+            return f"Generally good timing (+/-{std_error:.1f}ms consistency)."
     
     def _extract_timing_patterns(self, timing_data: Dict) -> List[str]:
         """Extract timing patterns for summary."""
@@ -471,6 +477,78 @@ class JSONSummarization:
 
         # Convert to percentages
         return {k: (v / total_errors) * 100 for k, v in counts.items()}
+
+    def _build_categorized_errors(
+        self,
+        error_metrics: Dict,
+        error_categories: Dict,
+        include_samples: bool = False,
+        sample_limit: int = 10,
+    ) -> Dict[str, Any]:
+        """Expose explicit error categories and counts for downstream consumers."""
+        note_acc = error_metrics.get('note_accuracy', {}) if isinstance(error_metrics, dict) else {}
+        timing = error_metrics.get('timing_errors', {}) if isinstance(error_metrics, dict) else {}
+
+        total_ref = max(1, int(note_acc.get('total_reference_notes', 0)))
+        missing = int(note_acc.get('missing_notes', 0))
+        extra = int(note_acc.get('extra_notes', 0))
+        wrong = int(note_acc.get('wrong_notes', 0))
+
+        note_cat = error_categories.get('note_accuracy', {}) if isinstance(error_categories, dict) else {}
+
+        def _samples(items: Any, n: int = 10) -> List[Dict[str, Any]]:
+            out = []
+            if not isinstance(items, list):
+                return out
+            for p in items[:n]:
+                ref = p.get('reference_note') if isinstance(p, dict) else None
+                perf = p.get('performance_note') if isinstance(p, dict) else None
+                out.append({
+                    'ref_pitch': ref.get('pitch') if isinstance(ref, dict) else None,
+                    'ref_time': ref.get('start') if isinstance(ref, dict) else None,
+                    'perf_pitch': perf.get('pitch') if isinstance(perf, dict) else None,
+                    'perf_time': perf.get('start') if isinstance(perf, dict) else None,
+                    'error_type': p.get('error_type') if isinstance(p, dict) else None,
+                    'reason': p.get('reason') if isinstance(p, dict) else None,
+                })
+            return out
+
+        by_error_type: Dict[str, int] = {}
+        for pair in self.alignment:
+            if not isinstance(pair, dict):
+                continue
+            et = str(pair.get('error_type', 'none'))
+            if et == 'none':
+                continue
+            by_error_type[et] = by_error_type.get(et, 0) + 1
+
+        out = {
+            'note_errors': {
+                'missing_notes': {
+                    'count': missing,
+                    'percentage_of_reference': round((missing / total_ref) * 100, 1)
+                },
+                'extra_notes': {
+                    'count': extra
+                },
+                'wrong_notes': {
+                    'count': wrong,
+                    'percentage_of_reference': round((wrong / total_ref) * 100, 1)
+                }
+            },
+            'timing_errors': {
+                'rushing_count': int(timing.get('rushing_count', 0)),
+                'dragging_count': int(timing.get('dragging_count', 0)),
+                'rushing_percentage': float(timing.get('rushing_percentage', 0.0)),
+                'dragging_percentage': float(timing.get('dragging_percentage', 0.0))
+            },
+            'other_error_types': by_error_type
+        }
+        if include_samples:
+            out['note_errors']['missing_notes']['samples'] = _samples(note_cat.get('missing', []), n=sample_limit)
+            out['note_errors']['extra_notes']['samples'] = _samples(note_cat.get('extra', []), n=sample_limit)
+            out['note_errors']['wrong_notes']['samples'] = _samples(note_cat.get('wrong', []), n=sample_limit)
+        return out
     
     def _create_practice_schedule(self, categorized_recs: Dict) -> Dict[str, Any]:
         """Create a suggested practice schedule."""
@@ -551,23 +629,87 @@ class JSONSummarization:
             {'section': 'Measures 5-8', 'reason': 'Fast arpeggios', 'difficulty': 'high'},
             {'section': 'Measures 12-15', 'reason': 'Complex rhythm', 'difficulty': 'medium'}
         ]
-    
     def _find_fastest_passage(self, notes: List[Dict]) -> Dict:
-        """Find the fastest passage in the piece."""
-        if len(notes) < 10:
+        """Find the fastest local passage based on note density and local IOI."""
+        if len(notes) < 4:
             return {'tempo': 'N/A', 'location': 'N/A'}
-        
-        # Simplified implementation
-        return {'tempo': '♩=120', 'location': 'Measures 8-12'}
-    
+
+        notes_sorted = sorted(notes, key=lambda n: float(n.get('start', 0.0)))
+        # Use unique onset events so block chords are not misclassified as "fast".
+        starts = sorted({round(float(n.get('start', 0.0)), 6) for n in notes_sorted})
+        if len(starts) < 3:
+            return {'tempo': 'N/A', 'location': 'N/A'}
+
+        window_s = 2.0
+        best_i = 0
+        best_j = 0
+        best_nps = 0.0
+
+        j = 0
+        for i in range(len(starts)):
+            while j + 1 < len(starts) and starts[j + 1] - starts[i] <= window_s:
+                j += 1
+            count = (j - i + 1)
+            # Normalize by a fixed window to avoid divide-by-near-zero spikes.
+            nps = count / window_s
+            if nps > best_nps:
+                best_nps = nps
+                best_i = i
+                best_j = j
+
+        local = starts[best_i:best_j + 1]
+        iois = [local[k] - local[k - 1] for k in range(1, len(local)) if (local[k] - local[k - 1]) > 1e-6]
+        if iois:
+            median_ioi = statistics.median(iois)
+            bpm = 60.0 / median_ioi if median_ioi > 1e-6 else 0.0
+            if bpm > 300:
+                tempo_text = ">300 BPM (very fast subdivision run)"
+            else:
+                tempo_text = f"~{int(round(bpm))} BPM (median IOI)"
+        else:
+            tempo_text = "N/A"
+
+        t0 = starts[best_i]
+        t1 = starts[best_j]
+        return {
+            'tempo': tempo_text,
+            'location': f"{t0:.2f}s - {t1:.2f}s",
+            'notes_per_second': round(best_nps, 2),
+            'window_seconds': round(window_s, 2),
+            'note_count': int(best_j - best_i + 1)
+        }
+
     def _find_largest_interval(self, notes: List[Dict]) -> Dict:
-        """Find the largest interval leap."""
+        """Find the largest melodic leap between consecutive note onsets."""
         if len(notes) < 2:
             return {'interval': 0, 'location': 'N/A'}
-        
-        # Simplified implementation
-        return {'interval': 'octave', 'location': 'Measure 7'}
-    
+
+        notes_sorted = sorted(notes, key=lambda n: (float(n.get('start', 0.0)), int(n.get('pitch', 0))))
+        best = None
+        for i in range(1, len(notes_sorted)):
+            p0 = int(notes_sorted[i - 1].get('pitch', 0))
+            p1 = int(notes_sorted[i].get('pitch', 0))
+            leap = abs(p1 - p0)
+            if best is None or leap > best['semitones']:
+                best = {
+                    'semitones': leap,
+                    'from_pitch': p0,
+                    'to_pitch': p1,
+                    'time': float(notes_sorted[i].get('start', 0.0)),
+                    'direction': 'up' if p1 >= p0 else 'down'
+                }
+
+        if best is None:
+            return {'interval': 0, 'location': 'N/A'}
+
+        return {
+            'interval': f"{best['semitones']} semitones",
+            'location': f"{best['time']:.2f}s",
+            'direction': best['direction'],
+            'from_pitch': best['from_pitch'],
+            'to_pitch': best['to_pitch']
+        }
+
     def _analyze_tempo_profile(self) -> str:
         """Analyze tempo profile."""
         return "Generally steady tempo with slight rubato in expressive sections"
@@ -808,3 +950,4 @@ def create_minimal_summary(analysis_data: Dict[str, Any]) -> Dict[str, Any]:
         'top_recommendation': error_analysis.get('practice_recommendations', [''])[0] if error_analysis.get('practice_recommendations') else '',
         'timestamp': datetime.now().isoformat()
     }
+
