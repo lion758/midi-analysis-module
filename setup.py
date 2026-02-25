@@ -16,7 +16,8 @@ package_info = {
         'scipy',
         'fastdtw',
         'matplotlib',
-        'pandas'
+        'pandas',
+        'openai'
     ]
 }
 

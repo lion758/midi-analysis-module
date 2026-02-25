@@ -12,6 +12,9 @@ fastdtw>=0.3.4
 matplotlib>=3.3.0
 pandas>=1.5.0
 
+# GPT tutoring
+openai>=2.0.0
+
 # Build tools
 setuptools>=65.5.0
 wheel>=0.38.0

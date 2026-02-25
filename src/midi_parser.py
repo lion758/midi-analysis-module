@@ -43,13 +43,13 @@ class MIDIParser:
         for i, instrument in enumerate(self.midi_data.instruments):
             for note in instrument.notes:
                 note_data = {
-                    'pitch': note.pitch,
+                    'pitch': int(note.pitch),
                     'pitch_name': pretty_midi.note_number_to_name(note.pitch),
-                    'start': note.start,
-                    'end': note.end,
-                    'velocity': note.velocity,
-                    'duration': note.end - note.start,
-                    'instrument': instrument.program,
+                    'start': float(note.start),
+                    'end': float(note.end),
+                    'velocity': int(note.velocity),
+                    'duration': float(note.end - note.start),
+                    'instrument': int(instrument.program),
                     'instrument_name': instrument.name,
                     'track_id': i,
                     'beat_position': self._get_beat_position(note.start),
@@ -66,9 +66,9 @@ class MIDIParser:
             'instruments': [
                 {
                     'name': inst.name,
-                    'program': inst.program,
-                    'is_drum': inst.is_drum,
-                    'note_count': len(inst.notes)
+                    'program': int(inst.program),
+                    'is_drum': bool(inst.is_drum),
+                    'note_count': int(len(inst.notes))
                 } for inst in self.midi_data.instruments
             ],
             'key_signature_changes': [

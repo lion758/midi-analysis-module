@@ -176,7 +176,7 @@ class MIDIAnalyzer:
             print(f"File: {midi_path}")
             print(f"Total notes: {len(notes)}")
             print(f"Total duration: {float(total_duration):.2f} seconds")
-            print(f"Instruments: {midi_data.get('instruments', [])}")
+            print(f"Instruments: {midi_data.get('metadata', {}).get('instruments', [])}")
 
             print("\nFIRST 5 NOTES:")
             for i, note in enumerate(notes[:5]):
@@ -431,13 +431,13 @@ class MIDIAnalyzer:
         if timing_analysis:
             print("\nTIMING ANALYSIS:")
             print(f"  Avg Time Difference: {timing_analysis.get('mean_time_difference', 0.0):.3f}s")
-            print(f"  Timing Consistency: ±{timing_analysis.get('std_time_difference', 0.0):.3f}s")
+            print(f"  Timing Consistency: +/-{timing_analysis.get('std_time_difference', 0.0):.3f}s")
 
         timing_accuracy = stats.get("timing_accuracy", {})
         if timing_accuracy:
             print("\nTIMING ANALYSIS:")
             print(f"  Mean |Time Error|: {timing_accuracy.get('mean_abs_error', 0.0):.3f}s")
-            print(f"  Std  |Time Error|: ±{timing_accuracy.get('std_abs_error', 0.0):.3f}s")
+            print(f"  Std  |Time Error|: +/-{timing_accuracy.get('std_abs_error', 0.0):.3f}s")
 
 
 # -------------------------

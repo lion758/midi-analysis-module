@@ -26,7 +26,9 @@ __all__ = [
     'JSONSummarization',
     'MIDIAnalyzer',
     'quick_analyze',
-    'compare_performance'
+    'compare_performance',
+    'GPTTutor',
+    'create_tutor_feedback'
 ]
 
 # Package metadata
@@ -40,8 +42,21 @@ package_info = {
         "phrase_segmentation",
         "error_analysis",
         "json_summarization",
-        "analyzer"
+        "analyzer",
+        "gpt_tutor"
     ]
 }
 
 print(f"Loaded MIDI Analysis Module v{__version__}")
+
+
+def __getattr__(name):
+    if name in {"GPTTutor", "create_tutor_feedback"}:
+        from .gpt_tutor import GPTTutor, create_tutor_feedback
+
+        exports = {
+            "GPTTutor": GPTTutor,
+            "create_tutor_feedback": create_tutor_feedback,
+        }
+        return exports[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -75,7 +75,7 @@ class JSONSummarization:
             'reference_statistics': {
                 'total_notes': len(reference_notes),
                 'duration': ref_dur,
-                'instruments': self.reference_data.get('instruments', []),
+                'instruments': self.reference_data.get('metadata', {}).get('instruments', []),
                 'pitch_range': self._calculate_pitch_range(reference_notes),
                 'note_density': len(reference_notes) / ref_dur if ref_dur > 0 else 0
             },
@@ -610,7 +610,7 @@ class JSONSummarization:
             return "Unknown"
         
         note_count = len(reference_notes)
-        duration = self.reference_data.get('total_duration', 1)
+        duration = self._get_total_duration(self.reference_data) or 1.0
         notes_per_second = note_count / duration
         
         if notes_per_second > 10:

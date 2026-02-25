@@ -839,14 +839,6 @@ class ErrorAnalysis:
         
         return strengths if strengths else ["Solid foundation - keep practicing!"]
     
-    # In error_analysis.py, add this simple placeholder method:
-    def _analyze_tempo_stability(self) -> Dict[str, Any]:
-        """Placeholder for tempo stability analysis."""
-        return {
-            'stability_score': 0.5,
-            'tempo_variation': 'Normal',
-            'note': 'Tempo stability analysis not fully implemented'
-        }
     def _identify_weaknesses(self) -> List[str]:
         """Identify performance weaknesses."""
         weaknesses = []
